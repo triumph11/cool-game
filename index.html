@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Claim</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=VT323&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/src/client/styles.css" />
+  </head>
+  <body>
+    <div id="boot">
+      <div class="panel boot-card">
+        <p class="eyebrow">Frontier ledger</p>
+        <h1>CLAIM</h1>
+        <p class="lede">
+          Buy a plot. Hire a crew. Design a shack. The Depot is small on purpose.
+        </p>
+        <label>Name <input id="name" autocomplete="username" maxlength="20" /></label>
+        <label>Password <input id="pass" type="password" autocomplete="current-password" /></label>
+        <div class="row">
+          <button id="register" class="primary">Create account</button>
+          <button id="login">Log in</button>
+        </div>
+        <p id="boot-err" class="err"></p>
+      </div>
+    </div>
+
+    <div id="game" hidden>
+      <canvas id="view"></canvas>
+      <header id="top">
+        <div class="brand">CLAIM</div>
+        <div id="marks" class="marks">0 M</div>
+        <div id="inv" class="inv"></div>
+        <div id="tick" class="muted"></div>
+      </header>
+      <nav id="tools">
+        <button data-tool="select" class="on">Select</button>
+        <button data-tool="buy">Buy plot</button>
+        <button data-tool="hire">Hire</button>
+        <button data-tool="mine">Mine</button>
+        <button data-tool="build">Place</button>
+        <button data-panel="depot">Depot</button>
+        <button data-panel="blueprints">Blueprints</button>
+      </nav>
+      <aside id="inspect"></aside>
+      <div id="hint"></div>
+
+      <section id="depot" class="sheet" hidden>
+        <header>
+          <h2>Frontier Depot</h2>
+          <button data-close="depot">Close</button>
+        </header>
+        <p class="muted">Limited stock. Prices move when shelves empty.</p>
+        <div id="depot-rows"></div>
+      </section>
+
+      <section id="blueprints" class="sheet" hidden>
+        <header>
+          <h2>Blueprints</h2>
+          <button data-close="blueprints">Close</button>
+        </header>
+        <p class="muted">Paint a building, save it, then Place it on your land.</p>
+        <div class="designer-wrap">
+          <div>
+            <div id="palette" class="palette"></div>
+            <div id="grid" class="grid"></div>
+            <div class="row">
+              <input id="bp-name" placeholder="Blueprint name" maxlength="24" />
+              <button id="bp-save" class="primary">Save design</button>
+              <button id="bp-clear">Clear</button>
+            </div>
+            <p id="bom" class="bom"></p>
+          </div>
+          <div>
+            <h3>Your prints</h3>
+            <div id="bp-list"></div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div id="toast" hidden></div>
+    <script type="module" src="/src/client/main.ts"></script>
+  </body>
+</html>

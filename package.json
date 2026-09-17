@@ -1,0 +1,31 @@
+{
+  "name": "claim",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Claim — shared-world industrial RTS in the browser",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n server,client -c cyan,green \"tsx watch src/server/index.ts\" \"vite\"",
+    "dev:server": "tsx watch src/server/index.ts",
+    "dev:client": "vite",
+    "build": "tsc -p tsconfig.server.json && vite build",
+    "start": "node dist/server/index.js",
+    "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.3",
+    "@types/ws": "^8.18.1",
+    "concurrently": "^10.0.5",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}
