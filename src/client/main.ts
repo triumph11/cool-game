@@ -31,8 +31,9 @@ const keys = new Set<string>();
 const net = connect({
   onWelcome(s) {
     snap = s;
-    document.querySelector("#boot")!.setAttribute("hidden", "");
+    document.querySelector("#boot")!.setAttribute("hidden", "hidden");
     document.querySelector("#game")!.removeAttribute("hidden");
+    document.querySelector("#boot-err")!.textContent = "";
     focusHome();
     renderHud();
     renderDesigner();
@@ -42,8 +43,10 @@ const net = connect({
     renderHud();
   },
   onError(message) {
-    showToast(message);
-    document.querySelector("#boot-err")!.textContent = message;
+    if (snap) showToast(message);
+    else if (!message.startsWith("Lost")) {
+      document.querySelector("#boot-err")!.textContent = message;
+    }
   },
 });
 
@@ -53,13 +56,25 @@ function send(msg: ClientMsg): void {
 
 document.querySelector("#register")!.addEventListener("click", () => auth("register"));
 document.querySelector("#login")!.addEventListener("click", () => auth("login"));
-document.querySelector("#pass")!.addEventListener("keydown", (e) => {
-  if ((e as KeyboardEvent).key === "Enter") auth("login");
-});
+for (const id of ["#name", "#pass"]) {
+  document.querySelector(id)!.addEventListener("keydown", (e) => {
+    if ((e as KeyboardEvent).key === "Enter") auth("login");
+  });
+}
 
 function auth(kind: "register" | "login"): void {
-  const name = (document.querySelector("#name") as HTMLInputElement).value;
+  const name = (document.querySelector("#name") as HTMLInputElement).value.trim();
   const password = (document.querySelector("#pass") as HTMLInputElement).value;
+  const err = document.querySelector("#boot-err")!;
+  if (name.length < 3) {
+    err.textContent = "Name must be at least 3 characters.";
+    return;
+  }
+  if (password.length < 4) {
+    err.textContent = "Password must be at least 4 characters.";
+    return;
+  }
+  err.textContent = kind === "register" ? "Creating account…" : "Logging in…";
   send({ t: kind, name, password });
 }
 
