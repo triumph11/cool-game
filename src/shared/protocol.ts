@@ -38,7 +38,8 @@ export type ClientMsg =
   | { t: "deposit"; llcId: string; amount: number }
   | { t: "withdraw"; depositId: string }
   | { t: "linkWallet"; address: string }
-  | { t: "wrapMarks"; amount: number };
+  | { t: "wrapMarks"; amount: number }
+  | { t: "unwrapMarks"; txHash: string };
 
 export type ServerMsg =
   | { t: "error"; message: string }

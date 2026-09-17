@@ -16,9 +16,9 @@ Playable now:
 - Compute: logic gates, wiring, scripts (`IF STOCK timber > 8 THEN START smelter`)
 - Player banks: deposits, interest, bank runs
 - Living land: pollution from machines, neighbor bleed, trees grow back if clean
-- Ledger wrap: simulated wallet receipt only — no real token
+- Ledger wrap: ERC-20 MARKS on a local Hardhat chain (wrap in-game Marks ⇄ burn on-chain)
 
-Real on-chain minting is intentionally not in this build.
+Factory ticks and plot sim stay off-chain. Point `CHAIN_RPC` at a testnet later if you want.
 
 ## Run
 
@@ -28,6 +28,14 @@ Needs Node 20+.
 npm install
 npm run dev
 ```
+
+That starts the local chain, deploys MARKS, then the game. Open [http://127.0.0.1:5173](http://127.0.0.1:5173)
+
+Hardhat account 0 (for MetaMask import / tests):
+
+`0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80`
+
+Address: `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266`
 
 Open [http://localhost:5173](http://localhost:5173)
 

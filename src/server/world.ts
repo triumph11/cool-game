@@ -79,6 +79,7 @@ import type {
   WrapReceipt,
   You,
 } from "../shared/types";
+import { chainInfo, mintMarks, verifyBurnTx } from "./chain";
 import { checkPassword, hashPassword, newId } from "./auth";
 import { nextStep, walkable } from "./path";
 
@@ -97,6 +98,7 @@ interface Account {
   scriptLog: string[];
   wallet: string;
   wraps: WrapReceipt[];
+  usedUnwraps: string[];
 }
 
 interface Persist {
@@ -244,6 +246,7 @@ export class World {
         a.scriptLog ??= [];
         a.wallet ??= "";
         a.wraps ??= [];
+        a.usedUnwraps ??= [];
         for (const bp of a.blueprints) {
           bp.machine ??= "none";
           bp.patented ??= false;
@@ -319,6 +322,7 @@ export class World {
       scriptLog: [],
       wallet: "",
       wraps: [],
+      usedUnwraps: [],
     };
     this.accounts.set(account.id, account);
     this.byName.set(clean.toLowerCase(), account);
@@ -382,6 +386,7 @@ export class World {
       scriptLog: you.scriptLog,
       wallet: you.wallet,
       wraps: you.wraps,
+      chain: chainInfo(),
     };
   }
 
@@ -1229,16 +1234,36 @@ export class World {
 
   linkWallet(you: Account, address: string): void {
     const a = address.trim();
-    if (a.length < 8) throw new Error("Wallet address looks too short.");
-    you.wallet = a.slice(0, 64);
+    if (!/^0x[0-9a-fA-F]{40}$/.test(a)) {
+      throw new Error("Link a 0x wallet address (MetaMask / local chain account).");
+    }
+    you.wallet = a;
   }
 
-  wrapMarks(you: Account, amount: number): void {
-    if (!you.wallet) throw new Error("Link a wallet first. This wrap is simulated — no real chain yet.");
+  async wrapMarks(you: Account, amount: number): Promise<void> {
+    if (!you.wallet) throw new Error("Link a 0x wallet first.");
     const n = Math.max(1, Math.floor(amount));
     if (you.marks < n) throw new Error("Not enough Marks.");
     you.marks -= n;
-    you.wraps.push({ tick: this.tick, amount: n, address: you.wallet });
+    try {
+      const tx = await mintMarks(you.wallet, n);
+      you.wraps.push({ tick: this.tick, amount: n, address: you.wallet, tx, kind: "wrap" });
+    } catch (err) {
+      you.marks += n;
+      throw err;
+    }
+  }
+
+  async unwrapMarks(you: Account, txHash: string): Promise<void> {
+    if (!you.wallet) throw new Error("Link a 0x wallet first.");
+    const hash = txHash.trim();
+    if (!/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error("Need a transaction hash from MARKS.burn().");
+    if (you.usedUnwraps.includes(hash)) throw new Error("That unwrap was already credited.");
+    const amount = await verifyBurnTx(hash, you.wallet);
+    if (amount < 1) throw new Error("Burn amount is under 1 Mark.");
+    you.usedUnwraps.push(hash);
+    you.marks += Math.floor(amount);
+    you.wraps.push({ tick: this.tick, amount: Math.floor(amount), address: you.wallet, tx: hash, kind: "unwrap" });
   }
 
   private nameOf(id: string): string {

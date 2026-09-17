@@ -178,6 +178,8 @@ document.querySelector("#wrap-link")?.addEventListener("click", () => {
 document.querySelector("#wrap-go")?.addEventListener("click", () => {
   send({ t: "wrapMarks", amount: Number((document.querySelector("#wrap-amt") as HTMLInputElement).value) });
 });
+document.querySelector("#wrap-connect")?.addEventListener("click", () => void connectWallet());
+document.querySelector("#unwrap-go")?.addEventListener("click", () => void burnAndUnwrap());
 
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 canvas.addEventListener("mousedown", (e) => {
@@ -581,8 +583,65 @@ function renderWrap(): void {
   if (!root) return;
   const addr = document.querySelector("#wrap-addr") as HTMLInputElement | null;
   if (addr && document.activeElement !== addr && snap.you.wallet) addr.value = snap.you.wallet;
-  root.innerHTML = `<p>Linked: ${snap.you.wallet || "none"}</p>` +
-    (snap.you.wraps ?? []).map((w) => `<p>tick ${w.tick}: wrapped ${w.amount} M → ${w.address}</p>`).join("");
+  const ch = snap.you.chain;
+  root.innerHTML = `<p>Linked: ${snap.you.wallet || "none"}</p>
+    <p class="muted">Chain ${ch?.ready ? `ready · id ${ch.chainId}` : "starting…"} · token ${ch?.token || "—"}</p>
+    <p id="chain-bal" class="muted"></p>` +
+    (snap.you.wraps ?? []).map((w) => `<p>${w.kind ?? "wrap"} ${w.amount} M · ${w.tx ?? w.address}</p>`).join("");
+  if (ch?.ready && snap.you.wallet) {
+    fetch(`/api/chain?address=${snap.you.wallet}`)
+      .then((r) => r.json())
+      .then((j) => {
+        const el = document.querySelector("#chain-bal");
+        if (el) el.textContent = j.balance != null ? `On-chain MARKS: ${j.balance}` : "Could not read chain balance.";
+      })
+      .catch(() => undefined);
+  }
+}
+
+async function connectWallet(): Promise<void> {
+  const eth = (window as unknown as { ethereum?: { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> } }).ethereum;
+  if (!eth) {
+    showToast("No MetaMask. Paste a 0x address from the local chain (Hardhat account 0 works).");
+    return;
+  }
+  const accs = (await eth.request({ method: "eth_requestAccounts" })) as string[];
+  const address = accs[0];
+  (document.querySelector("#wrap-addr") as HTMLInputElement).value = address;
+  send({ t: "linkWallet", address });
+  const ch = snap?.you.chain;
+  if (ch?.ready) {
+    try {
+      await eth.request({
+        method: "wallet_addEthereumChain",
+        params: [{
+          chainId: "0x7a69",
+          chainName: "Claim local",
+          nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+          rpcUrls: [ch.rpc || "http://127.0.0.1:8545"],
+        }],
+      });
+    } catch {
+      /* already added */
+    }
+  }
+}
+
+async function burnAndUnwrap(): Promise<void> {
+  const eth = (window as unknown as { ethereum?: { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> } }).ethereum;
+  const ch = snap?.you.chain;
+  const amount = Number((document.querySelector("#wrap-amt") as HTMLInputElement).value);
+  if (!eth || !ch?.token) {
+    showToast("Connect MetaMask on the local chain to burn MARKS, then unwrap.");
+    return;
+  }
+  const { BrowserProvider, Contract, parseEther } = await import("ethers");
+  const provider = new BrowserProvider(eth as never);
+  const signer = await provider.getSigner();
+  const token = new Contract(ch.token, ["function burn(uint256 amount)"], signer);
+  const tx = await token.burn(parseEther(String(amount)));
+  const rec = await tx.wait();
+  send({ t: "unwrapMarks", txHash: rec.hash });
 }
 
 function renderTrucks(): void {

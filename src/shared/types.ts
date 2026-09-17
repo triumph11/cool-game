@@ -1,6 +1,7 @@
 import type { MachineKind, Material, StructureKind } from "./constants";
 import type { Process, Qty, RegistryItem } from "./chemistry";
 import type { CircuitNode } from "./compute";
+import type { ChainInfo } from "./markAbi";
 export type { Material, StructureKind, MachineKind };
 export type { Qty };
 
@@ -120,6 +121,8 @@ export interface WrapReceipt {
   tick: number;
   amount: number;
   address: string;
+  tx?: string;
+  kind: "wrap" | "unwrap";
 }
 
 export interface Loan {
@@ -194,6 +197,7 @@ export interface You {
   scriptLog: string[];
   wallet: string;
   wraps: WrapReceipt[];
+  chain?: ChainInfo;
 }
 
 export interface WorldSnapshot {

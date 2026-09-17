@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TICK_MS } from "../shared/constants";
 import type { ClientMsg, ServerMsg } from "../shared/protocol";
+import { chainInfo, tokenBalance } from "./chain";
 import { World } from "./world";
 
 const PORT = Number(process.env.PORT ?? 3001);
@@ -9,13 +10,31 @@ const world = new World();
 const sockets = new Map<WebSocket, string>();
 
 const http = createServer((req, res) => {
-  if (req.url === "/api/health") {
-    res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ ok: true, tick: world.tick, players: world.accounts.size }));
-    return;
-  }
-  res.writeHead(404);
-  res.end("not found");
+  void (async () => {
+    if (req.url === "/api/health") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: true, tick: world.tick, players: world.accounts.size, chain: chainInfo().ready }));
+      return;
+    }
+    if (req.url?.startsWith("/api/chain")) {
+      const url = new URL(req.url, "http://127.0.0.1");
+      const info = chainInfo();
+      let balance: string | null = null;
+      const address = url.searchParams.get("address");
+      if (info.ready && address) {
+        try {
+          balance = await tokenBalance(address);
+        } catch {
+          balance = null;
+        }
+      }
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ...info, balance }));
+      return;
+    }
+    res.writeHead(404);
+    res.end("not found");
+  })();
 });
 
 const wss = new WebSocketServer({ server: http, path: "/ws" });
@@ -33,7 +52,7 @@ function broadcast(): void {
 }
 
 wss.on("connection", (ws) => {
-  ws.on("message", (raw) => {
+  ws.on("message", async (raw) => {
     let msg: ClientMsg;
     try {
       msg = JSON.parse(String(raw)) as ClientMsg;
@@ -42,7 +61,7 @@ wss.on("connection", (ws) => {
       return;
     }
     try {
-      handle(ws, msg);
+      await handle(ws, msg);
     } catch (err) {
       send(ws, { t: "error", message: err instanceof Error ? err.message : "Failed." });
     }
@@ -50,7 +69,7 @@ wss.on("connection", (ws) => {
   ws.on("close", () => sockets.delete(ws));
 });
 
-function handle(ws: WebSocket, msg: ClientMsg): void {
+async function handle(ws: WebSocket, msg: ClientMsg): Promise<void> {
   if (msg.t === "register" || msg.t === "login") {
     const you = msg.t === "register" ? world.register(msg.name, msg.password) : world.login(msg.name, msg.password);
     sockets.set(ws, you.id);
@@ -167,7 +186,10 @@ function handle(ws: WebSocket, msg: ClientMsg): void {
       world.linkWallet(you, msg.address);
       break;
     case "wrapMarks":
-      world.wrapMarks(you, msg.amount);
+      await world.wrapMarks(you, msg.amount);
+      break;
+    case "unwrapMarks":
+      await world.unwrapMarks(you, msg.txHash);
       break;
     default:
       throw new Error("Unknown command.");

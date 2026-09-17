@@ -195,12 +195,16 @@
 
       <section id="ledger" class="sheet" hidden>
         <header><h2>Ledger wrap</h2><button data-close="ledger">Close</button></header>
-        <p class="muted">Simulated wrap only. Marks leave the game ledger and sit as a receipt. No real token is minted.</p>
+        <p class="muted">Real ERC-20 MARKS on the local Hardhat chain. Factory ticks stay off-chain. MetaMask: add network 31337 / http://127.0.0.1:8545</p>
         <div class="row">
-          <input id="wrap-addr" placeholder="wallet address" />
-          <button id="wrap-link">Link wallet</button>
+          <button id="wrap-connect" class="primary">Connect MetaMask</button>
+          <input id="wrap-addr" placeholder="0x wallet" />
+          <button id="wrap-link">Link address</button>
+        </div>
+        <div class="row">
           <input id="wrap-amt" type="number" value="10" min="1" />
-          <button id="wrap-go" class="primary">Wrap Marks</button>
+          <button id="wrap-go" class="primary">Wrap to chain</button>
+          <button id="unwrap-go">Burn + unwrap back</button>
         </div>
         <div id="wrap-list"></div>
       </section>
