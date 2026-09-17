@@ -2,16 +2,19 @@
 
 Browser industrial RTS. Shared pixel world, player economy, you run a company from above.
 
-This repo is the first playable slice:
+Playable now:
 
 - Account + wallet (Marks)
-- Shared map of plots
-- Buy land, hire workers, click jobs
-- Building designer + bill of materials
-- Frontier Depot with limited stock and moving prices
-- Mine timber / stone / ore / clay / sand and sell it
+- Shared map of plots, RTS camera, hire workers, mine, build
+- Building designer (including smelter / lab) + patents
+- Frontier Depot (limited stock) and a **player market**
+- Chemistry lab: known recipes plus invented materials
+- Mail, player loans, LLCs, licenses with a kill switch
+- Pave roads on your land; Government proposals to cross neighbors
+- Cargo trucks with click-to-set routes
+- Land tax and bankruptcy if debt runs too high
 
-Later: chemistry, machines, trucks, LLCs, patents, player banks, government roads.
+Still later: electronics scripting, bank deposits / bank-runs, chain bridge.
 
 ## Run
 

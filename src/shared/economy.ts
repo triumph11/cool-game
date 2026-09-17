@@ -37,15 +37,15 @@ export function billOfMaterials(tiles: StructureKind[]): Inventory {
 }
 
 export function hasMaterials(inv: Inventory, cost: Inventory): boolean {
-  return MATERIALS.every((m) => inv[m] >= cost[m]);
+  return Object.entries(cost).every(([k, v]) => (inv[k] ?? 0) >= v);
 }
 
 export function subtractMaterials(inv: Inventory, cost: Inventory): void {
-  for (const m of MATERIALS) inv[m] -= cost[m];
+  for (const [k, v] of Object.entries(cost)) inv[k] = (inv[k] ?? 0) - v;
 }
 
 export function addMaterials(inv: Inventory, add: Inventory): void {
-  for (const m of MATERIALS) inv[m] += add[m];
+  for (const [k, v] of Object.entries(add)) inv[k] = (inv[k] ?? 0) + v;
 }
 
 export function terrainToMaterial(terrain: number): Material | null {

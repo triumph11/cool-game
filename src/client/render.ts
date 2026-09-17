@@ -17,6 +17,7 @@ const STRUCT_COLOR: Record<number, string> = {
   [STRUCTURE.clayFloor]: "#a56a48",
   [STRUCTURE.sandPath]: "#d4b57a",
   [STRUCTURE.oreDoor]: "#c9a227",
+  [STRUCTURE.road]: "#5c5346",
 };
 
 export interface Camera {
@@ -96,6 +97,12 @@ export function drawWorld(
         ctx.fillStyle = "#3a7390";
         if ((x + y + Math.floor(snap.tick / 8)) % 5 === 0) ctx.fillRect(px + 2, py + 8, 8, 2);
       }
+      if (snap.roads?.[y * WORLD_TILES + x]) {
+        ctx.fillStyle = "#5c5346";
+        ctx.fillRect(px + 3, py + 3, TILE_PX - 6, TILE_PX - 6);
+        ctx.fillStyle = "#c9a227";
+        ctx.fillRect(px + TILE_PX / 2 - 1, py + 4, 2, TILE_PX - 8);
+      }
     }
   }
 
@@ -153,6 +160,16 @@ export function drawWorld(
     ctx.fillRect(px - 4, py - 6, 8, 8);
     ctx.fillStyle = mine ? "#d4a017" : "#5c3d2e";
     ctx.fillRect(px - 3, py + 2, 6, 5);
+  }
+
+  for (const v of snap.vehicles ?? []) {
+    const px = v.x * TILE_PX;
+    const py = v.y * TILE_PX;
+    ctx.fillStyle = v.ownerId === youId ? "#d4a017" : "#6b5344";
+    ctx.fillRect(px - 7, py - 5, 14, 10);
+    ctx.fillStyle = "#1c1a16";
+    ctx.fillRect(px - 5, py - 2, 4, 4);
+    ctx.fillRect(px + 1, py - 2, 4, 4);
   }
 
   if (hover && hover.x >= 0 && hover.y >= 0 && hover.x < WORLD_TILES && hover.y < WORLD_TILES) {

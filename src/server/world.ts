@@ -3,23 +3,47 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   BUILD_WORK_PER_TILE,
+  BANKRUPT_DEBT,
   DEPOT_CAP,
   DESIGNER_SIZE,
   HIRE_COST,
+  LLC_FEE,
+  LOAN_PERIOD_TICKS,
   MAX_WORKERS,
   MINE_TICKS,
+  PATENT_FEE,
+  PATENT_MAINT_TICKS,
   PLOT_COUNT,
   PLOT_TILES,
   RESTOCK_EVERY_TICKS,
   SAVE_EVERY_TICKS,
   START_MARKS,
   STRUCTURE,
+  TAX_EVERY_TICKS,
+  TAX_PER_PLOT,
   TERRAIN,
+  TRUCK_MARKS,
+  TRUCK_ORE,
+  TRUCK_TIMBER,
   WORKER_SPEED,
   WORLD_TILES,
+  type MachineKind,
   type Material,
   type StructureKind,
 } from "../shared/constants";
+import {
+  KNOWN_RECIPES,
+  compact,
+  findRecipe,
+  goodLabel,
+  inventFrom,
+  qtyAdd,
+  qtyHas,
+  qtySub,
+  type Process,
+  type Qty,
+  type RegistryItem,
+} from "../shared/chemistry";
 import {
   addMaterials,
   billOfMaterials,
@@ -36,8 +60,16 @@ import type {
   DepotState,
   Inventory,
   Job,
+  License,
+  Llc,
+  Loan,
+  MailItem,
+  MarketOrder,
+  Patent,
   Plot,
+  Proposal,
   PublicPlayer,
+  Vehicle,
   Worker,
   WorldSnapshot,
   You,
@@ -53,6 +85,7 @@ interface Account {
   name: string;
   pass: string;
   marks: number;
+  debt: number;
   inventory: Inventory;
   blueprints: Blueprint[];
 }
@@ -61,12 +94,22 @@ interface Persist {
   seed: number;
   tick: number;
   terrain: number[];
+  roads: number[];
   plots: Plot[];
   workers: Worker[];
   buildings: Building[];
+  vehicles: Vehicle[];
   depotStock: Inventory;
   accounts: Account[];
   mineProgress: Record<string, number>;
+  registry: RegistryItem[];
+  market: MarketOrder[];
+  mails: MailItem[];
+  llcs: Llc[];
+  loans: Loan[];
+  patents: Patent[];
+  licenses: License[];
+  proposals: Proposal[];
 }
 
 function generateTerrain(seed: number): number[] {
@@ -137,6 +180,16 @@ export class World {
   accounts = new Map<string, Account>();
   byName = new Map<string, Account>();
   mineProgress = new Map<string, number>();
+  roads: number[] = [];
+  vehicles: Vehicle[] = [];
+  registry: RegistryItem[] = [];
+  market: MarketOrder[] = [];
+  mails: MailItem[] = [];
+  llcs: Llc[] = [];
+  loans: Loan[] = [];
+  patents: Patent[] = [];
+  licenses: License[] = [];
+  proposals: Proposal[] = [];
 
   constructor() {
     this.loadOrCreate();
@@ -153,14 +206,35 @@ export class World {
       this.buildings = raw.buildings;
       this.depotStock = raw.depotStock;
       this.mineProgress = new Map(Object.entries(raw.mineProgress ?? {}));
+      this.roads = raw.roads ?? new Array(this.terrain.length).fill(0);
+      this.vehicles = raw.vehicles ?? [];
+      this.registry = raw.registry ?? [];
+      this.market = raw.market ?? [];
+      this.mails = raw.mails ?? [];
+      this.llcs = raw.llcs ?? [];
+      this.loans = raw.loans ?? [];
+      this.patents = raw.patents ?? [];
+      this.licenses = raw.licenses ?? [];
+      this.proposals = raw.proposals ?? [];
       for (const a of raw.accounts) {
+        a.debt ??= 0;
+        for (const bp of a.blueprints) {
+          bp.machine ??= "none";
+          bp.patented ??= false;
+        }
         this.accounts.set(a.id, a);
         this.byName.set(a.name.toLowerCase(), a);
+      }
+      for (const b of this.buildings) {
+        b.machine ??= "none";
+        b.recipeId ??= null;
+        b.work ??= 0;
       }
       return;
     }
     this.terrain = generateTerrain(this.seed);
     this.plots = makePlots(this.terrain);
+    this.roads = new Array(this.terrain.length).fill(0);
     this.save();
   }
 
@@ -176,6 +250,16 @@ export class World {
       depotStock: this.depotStock,
       accounts: [...this.accounts.values()],
       mineProgress: Object.fromEntries(this.mineProgress),
+      roads: this.roads,
+      vehicles: this.vehicles,
+      registry: this.registry,
+      market: this.market,
+      mails: this.mails,
+      llcs: this.llcs,
+      loans: this.loans,
+      patents: this.patents,
+      licenses: this.licenses,
+      proposals: this.proposals,
     };
     writeFileSync(dataFile, JSON.stringify(persist));
   }
@@ -190,6 +274,7 @@ export class World {
       name: clean,
       pass: hashPassword(password),
       marks: START_MARKS,
+      debt: 0,
       inventory: emptyInventory(),
       blueprints: [starterShack(clean)],
     };
@@ -221,6 +306,12 @@ export class World {
       workers: this.workers,
       buildings: this.buildings,
       depot: this.depot(),
+      market: this.market,
+      registry: this.registry,
+      recipes: KNOWN_RECIPES.map((r) => ({ id: r.id, name: r.name, process: r.process, in: r.in, out: r.out })),
+      proposals: this.proposals,
+      vehicles: this.vehicles,
+      roads: this.roads,
       players: this.publicPlayers(),
       you: this.youView(you),
     };
@@ -231,8 +322,15 @@ export class World {
       id: you.id,
       name: you.name,
       marks: you.marks,
+      debt: you.debt,
       inventory: { ...you.inventory },
       blueprints: you.blueprints,
+      mail: this.mails.filter((m) => m.toId === you.id).slice(-40),
+      llcs: this.llcs.filter((l) => l.members.some((m) => m.playerId === you.id)),
+      loansMade: this.loans.filter((l) => l.lenderId === you.id),
+      loansTaken: this.loans.filter((l) => l.borrowerId === you.id),
+      patents: this.patents.filter((p) => p.ownerId === you.id && p.until > this.tick),
+      licenses: this.licenses.filter((l) => l.licensorId === you.id || l.licenseeId === you.id),
     };
   }
 
@@ -247,7 +345,8 @@ export class World {
   }
 
   ownedPlots(id: string): Plot[] {
-    return this.plots.filter((p) => p.ownerId === id);
+    const llcIds = this.llcs.filter((l) => l.members.some((m) => m.playerId === id)).map((l) => l.id);
+    return this.plots.filter((p) => p.ownerId === id || (p.ownerId && llcIds.includes(p.ownerId)));
   }
 
   buyPlot(you: Account, plotId: number): void {
@@ -287,16 +386,22 @@ export class World {
       }
       if (job?.type === "mine") {
         const plot = this.plots[plotIdAt(job.x, job.y)];
-        if (plot.ownerId !== you.id) throw new Error("You can only mine your own land.");
+        if (!this.controls(you, plot.ownerId)) throw new Error("You can only mine your own land.");
         if (!terrainToMaterial(this.terrain[tileIndex(job.x, job.y)])) {
           throw new Error("Nothing to extract there.");
         }
+      }
+      if (job?.type === "work") {
+        const b = this.buildings.find((x) => x.id === job.buildingId);
+        if (!b || !this.controls(you, b.ownerId)) throw new Error("Not your machine.");
+        if (!b.complete) throw new Error("Machine is still being built.");
+        if (b.machine === "none") throw new Error("That building is not a machine.");
       }
       w.job = job;
     }
   }
 
-  saveBlueprint(you: Account, name: string, w: number, h: number, tiles: StructureKind[]): void {
+  saveBlueprint(you: Account, name: string, w: number, h: number, tiles: StructureKind[], machine: MachineKind = "none"): void {
     if (w !== DESIGNER_SIZE || h !== DESIGNER_SIZE) throw new Error("Designer is 8x8.");
     if (tiles.length !== w * h) throw new Error("Bad blueprint size.");
     const bom = billOfMaterials(tiles);
@@ -308,6 +413,8 @@ export class World {
       w,
       h,
       tiles: [...tiles],
+      machine,
+      patented: false,
     });
     if (you.blueprints.length > 24) you.blueprints.shift();
   }
@@ -321,11 +428,12 @@ export class World {
     for (let iy = 0; iy < bp.h; iy++) {
       for (let ix = 0; ix < bp.w; ix++) {
         const plot = this.plots[plotIdAt(x + ix, y + iy)];
-        if (plot.ownerId !== you.id) throw new Error("Building must sit on your land.");
+        if (!this.controls(you, plot.ownerId)) throw new Error("Building must sit on your land.");
         const tile = this.terrain[tileIndex(x + ix, y + iy)];
         if (tile === TERRAIN.water) throw new Error("Cannot build on water.");
       }
     }
+    this.assertPrintAllowed(you, bp);
     const cost = billOfMaterials(bp.tiles);
     if (!hasMaterials(you.inventory, cost)) throw new Error("Missing materials. Check the Depot.");
     subtractMaterials(you.inventory, cost);
@@ -341,41 +449,49 @@ export class World {
       needed,
       done: 0,
       complete: needed === 0,
+      machine: bp.machine ?? "none",
+      recipeId: bp.machine === "smelter" ? "iron" : bp.machine === "lab" ? null : null,
+      work: 0,
     };
     this.buildings.push(building);
     const idle = this.workers.filter((w) => w.ownerId === you.id && !w.job);
     for (const w of idle) w.job = { type: "build", buildingId: building.id };
   }
 
-  depotBuy(you: Account, item: Material, qty: number): void {
+  depotBuy(you: Account, item: string, qty: number): void {
+    if (!(item in DEPOT_CAP)) throw new Error("Depot only stocks starter goods.");
     const n = Math.max(1, Math.min(50, Math.floor(qty)));
     const { buy } = depotPrices(this.depotStock);
-    if (this.depotStock[item] < n) throw new Error("Depot is sold out of that.");
-    const cost = buy[item] * n;
+    if ((this.depotStock[item] ?? 0) < n) throw new Error("Depot is sold out of that.");
+    const cost = buy[item as Material] * n;
     if (you.marks < cost) throw new Error("Not enough Marks.");
     you.marks -= cost;
     this.depotStock[item] -= n;
-    you.inventory[item] += n;
+    you.inventory[item] = (you.inventory[item] ?? 0) + n;
   }
 
-  depotSell(you: Account, item: Material, qty: number): void {
+  depotSell(you: Account, item: string, qty: number): void {
+    if (!(item in DEPOT_CAP)) throw new Error("Depot only buys starter goods. Use the player market.");
     const n = Math.max(1, Math.min(50, Math.floor(qty)));
-    if (you.inventory[item] < n) throw new Error("You do not have that.");
-    const cap = DEPOT_CAP[item];
+    if ((you.inventory[item] ?? 0) < n) throw new Error("You do not have that.");
+    const cap = DEPOT_CAP[item as Material];
     const room = cap - this.depotStock[item];
     const take = Math.min(n, Math.max(0, room));
     if (take <= 0) throw new Error("Depot will not take more of that right now.");
     const { sell } = depotPrices(this.depotStock);
     you.inventory[item] -= take;
     this.depotStock[item] += take;
-    you.marks += sell[item] * take;
+    you.marks += sell[item as Material] * take;
   }
 
   step(): void {
     this.tick += 1;
     const dt = WORKER_SPEED / 4;
     for (const w of this.workers) this.stepWorker(w, dt);
+    for (const v of this.vehicles) this.stepVehicle(v, dt);
     if (this.tick % RESTOCK_EVERY_TICKS === 0) this.restock();
+    if (this.tick % TAX_EVERY_TICKS === 0) this.collectTax();
+    if (this.tick % 8 === 0) this.tickLoans();
     if (this.tick % SAVE_EVERY_TICKS === 0) this.save();
   }
 
@@ -393,7 +509,7 @@ export class World {
     if (job.type === "move" || job.type === "mine") {
       tx = job.x + 0.5;
       ty = job.y + 0.5;
-    } else {
+    } else if (job.type === "build" || job.type === "work") {
       const b = this.buildings.find((x) => x.id === job.buildingId);
       if (!b) {
         w.job = null;
@@ -419,6 +535,7 @@ export class World {
     }
     if (job.type === "mine") this.doMine(w, job.x, job.y);
     if (job.type === "build") this.doBuild(w, job.buildingId);
+    if (job.type === "work") this.doWork(w, job.buildingId);
   }
 
   private doMine(w: Worker, x: number, y: number): void {
@@ -461,6 +578,453 @@ export class World {
         if (other.job?.type === "build" && other.job.buildingId === buildingId) other.job = null;
       }
     }
+  }
+
+  private doWork(w: Worker, buildingId: string): void {
+    const b = this.buildings.find((x) => x.id === buildingId);
+    const owner = this.accounts.get(w.ownerId);
+    if (!b || !owner || !b.complete || b.machine === "none") {
+      w.job = null;
+      return;
+    }
+    const recipe = KNOWN_RECIPES.find((r) => r.id === b.recipeId);
+    if (!recipe) return;
+    if (!qtyHas(owner.inventory, recipe.in)) return;
+    b.work += 1;
+    if (b.work < recipe.ticks) return;
+    b.work = 0;
+    qtySub(owner.inventory, recipe.in);
+    qtyAdd(owner.inventory, recipe.out);
+  }
+
+  private stepVehicle(v: Vehicle, dt: number): void {
+    if (!v.route.length) return;
+    const stop = v.route[v.stop % v.route.length];
+    const speed = this.roads[tileIndex(Math.floor(v.x), Math.floor(v.y))] ? dt * 2.2 : dt * 0.9;
+    const tx = stop.x + 0.5;
+    const ty = stop.y + 0.5;
+    const dist = Math.hypot(tx - v.x, ty - v.y);
+    if (dist > 0.6) {
+      const mag = dist || 1;
+      v.x += ((tx - v.x) / mag) * Math.min(speed, dist);
+      v.y += ((ty - v.y) / mag) * Math.min(speed, dist);
+      return;
+    }
+    const owner = this.accounts.get(v.ownerId);
+    if (owner && stop.action === "load" && stop.item && (owner.inventory[stop.item] ?? 0) > 0) {
+      owner.inventory[stop.item] -= 1;
+      v.cargo[stop.item] = (v.cargo[stop.item] ?? 0) + 1;
+    }
+    if (owner && stop.action === "unload" && stop.item && (v.cargo[stop.item] ?? 0) > 0) {
+      v.cargo[stop.item] -= 1;
+      owner.inventory[stop.item] = (owner.inventory[stop.item] ?? 0) + 1;
+    }
+    v.stop = (v.stop + 1) % v.route.length;
+  }
+
+  private collectTax(): void {
+    for (const a of this.accounts.values()) {
+      const n = this.plots.filter((p) => p.ownerId === a.id).length;
+      const bill = n * TAX_PER_PLOT;
+      if (bill <= 0) continue;
+      if (a.marks >= bill) a.marks -= bill;
+      else {
+        a.debt += bill - a.marks;
+        a.marks = 0;
+      }
+      if (a.debt >= BANKRUPT_DEBT) this.bankrupt(a);
+    }
+  }
+
+  private tickLoans(): void {
+    for (const loan of this.loans) {
+      if (loan.remaining <= 0 || this.tick < loan.nextDue) continue;
+      const b = this.accounts.get(loan.borrowerId);
+      const l = this.accounts.get(loan.lenderId);
+      if (!b || !l) continue;
+      const interest = Math.max(1, Math.round(loan.remaining * (loan.rate / 100)));
+      const due = Math.min(loan.remaining + interest, interest + Math.ceil(loan.remaining * 0.15));
+      if (b.marks >= due) {
+        b.marks -= due;
+        l.marks += due;
+        loan.remaining = Math.max(0, loan.remaining + interest - due);
+      } else {
+        b.debt += due;
+        loan.remaining += interest;
+        if (b.debt >= BANKRUPT_DEBT) this.bankrupt(b);
+      }
+      loan.nextDue = this.tick + LOAN_PERIOD_TICKS;
+    }
+    this.loans = this.loans.filter((l) => l.remaining > 0);
+  }
+
+  private bankrupt(a: Account): void {
+    for (const p of this.plots) {
+      if (p.ownerId === a.id) {
+        p.ownerId = null;
+        p.ownerName = null;
+        p.price = Math.max(40, Math.floor(p.price * 0.7));
+      }
+    }
+    for (const [k, v] of Object.entries(a.inventory)) {
+      if (k in DEPOT_CAP) this.depotStock[k] = (this.depotStock[k] ?? 0) + v;
+    }
+    a.inventory = emptyInventory();
+    a.marks = 80;
+    a.debt = 0;
+    this.workers = this.workers.filter((w) => w.ownerId !== a.id);
+    this.vehicles = this.vehicles.filter((v) => v.ownerId !== a.id);
+    this.buildings = this.buildings.filter((b) => b.ownerId !== a.id);
+  }
+
+  controls(you: Account, ownerId: string | null): boolean {
+    if (!ownerId) return false;
+    if (ownerId === you.id) return true;
+    return this.llcs.some((l) => l.id === ownerId && l.members.some((m) => m.playerId === you.id));
+  }
+
+  private assertPrintAllowed(you: Account, bp: Blueprint): void {
+    const print = fingerprint(bp.tiles, bp.machine ?? "none");
+    const hit = this.patents.find((p) => p.fingerprint === print && p.until > this.tick);
+    if (!hit) return;
+    if (hit.ownerId === you.id) return;
+    const lic = this.licenses.find((l) => l.patentId === hit.id && l.licenseeId === you.id && !l.revoked);
+    if (!lic) throw new Error(`Print is patented by ${hit.ownerName}. Ask them for a license.`);
+  }
+
+  setRecipe(you: Account, buildingId: string, recipeId: string | null): void {
+    const b = this.buildings.find((x) => x.id === buildingId);
+    if (!b || !this.controls(you, b.ownerId)) throw new Error("Not your machine.");
+    if (recipeId && !KNOWN_RECIPES.some((r) => r.id === recipeId)) throw new Error("Unknown recipe.");
+    b.recipeId = recipeId;
+  }
+
+  craft(you: Account, process: Process, inputs: Qty, name?: string): void {
+    const use = compact(inputs);
+    if (!qtyHas(you.inventory, use)) throw new Error("Missing inputs.");
+    if (Object.keys(use).length === 0) throw new Error("Pick inputs.");
+    const known = findRecipe(process, use);
+    if (known) {
+      qtySub(you.inventory, known.in);
+      qtyAdd(you.inventory, known.out);
+      return;
+    }
+    const made = inventFrom(process, use, you.name);
+    qtySub(you.inventory, use);
+    if (made === "slag") throw new Error("The mix collapsed into slag.");
+    const existing = this.registry.find((r) => r.id === made.id);
+    if (existing) {
+      you.inventory[existing.id] = (you.inventory[existing.id] ?? 0) + 1;
+      return;
+    }
+    made.name = (name || "").trim().slice(0, 22) || `Unknown ${made.id.slice(0, 5)}`;
+    this.registry.push(made);
+    you.inventory[made.id] = 1;
+  }
+
+  marketSell(you: Account, item: string, qty: number, price: number): void {
+    const n = Math.max(1, Math.floor(qty));
+    const p = Math.max(1, Math.floor(price));
+    if ((you.inventory[item] ?? 0) < n) throw new Error("You do not have that.");
+    you.inventory[item] -= n;
+    this.market.push({
+      id: newId(),
+      sellerId: you.id,
+      sellerName: you.name,
+      item,
+      qty: n,
+      price: p,
+    });
+  }
+
+  marketBuy(you: Account, orderId: string): void {
+    const i = this.market.findIndex((o) => o.id === orderId);
+    if (i < 0) throw new Error("Order is gone.");
+    const o = this.market[i];
+    if (o.sellerId === you.id) throw new Error("That is your own order.");
+    const cost = o.price * o.qty;
+    if (you.marks < cost) throw new Error("Not enough Marks.");
+    const seller = this.accounts.get(o.sellerId);
+    you.marks -= cost;
+    if (seller) seller.marks += cost;
+    you.inventory[o.item] = (you.inventory[o.item] ?? 0) + o.qty;
+    this.market.splice(i, 1);
+  }
+
+  mailSend(you: Account, toName: string, body: string): void {
+    const to = this.byName.get(toName.trim().toLowerCase());
+    if (!to) throw new Error("No player by that name.");
+    this.pushMail(you, to, body.slice(0, 280), "note", {});
+  }
+
+  mailLoan(you: Account, toName: string, amount: number, rate: number, plotId: number | null): void {
+    const to = this.byName.get(toName.trim().toLowerCase());
+    if (!to) throw new Error("No player by that name.");
+    const n = Math.max(10, Math.floor(amount));
+    if (you.marks < n) throw new Error("You cannot lend what you do not have.");
+    this.pushMail(you, to, `Loan offer: ${n} M at ${rate}%`, "loan", {
+      amount: n,
+      rate: Math.max(0, Math.min(40, rate)),
+      plotId: plotId ?? -1,
+    });
+  }
+
+  mailAccept(you: Account, mailId: string): void {
+    const mail = this.mails.find((m) => m.id === mailId && m.toId === you.id);
+    if (!mail) throw new Error("No such letter.");
+    mail.read = true;
+    if (mail.kind === "loan") {
+      const amount = Number(mail.payload.amount);
+      const lender = this.accounts.get(mail.fromId);
+      if (!lender || lender.marks < amount) throw new Error("Lender no longer has the Marks.");
+      lender.marks -= amount;
+      you.marks += amount;
+      this.loans.push({
+        id: newId(),
+        lenderId: lender.id,
+        lenderName: lender.name,
+        borrowerId: you.id,
+        remaining: amount,
+        rate: Number(mail.payload.rate),
+        nextDue: this.tick + LOAN_PERIOD_TICKS,
+        collateralPlotId: Number(mail.payload.plotId) >= 0 ? Number(mail.payload.plotId) : null,
+      });
+    }
+    if (mail.kind === "llc-invite") {
+      const llc = this.llcs.find((l) => l.id === String(mail.payload.llcId));
+      if (!llc) throw new Error("Company is gone.");
+      if (llc.members.some((m) => m.playerId === you.id)) return;
+      llc.members.push({
+        playerId: you.id,
+        name: you.name,
+        shares: Number(mail.payload.shares) || 10,
+        role: "partner",
+      });
+    }
+    if (mail.kind === "license") {
+      this.licenses.push({
+        id: newId(),
+        patentId: String(mail.payload.patentId),
+        licensorId: mail.fromId,
+        licenseeId: you.id,
+        killSwitch: Boolean(mail.payload.killSwitch),
+        revoked: false,
+      });
+    }
+  }
+
+  foundLlc(you: Account, name: string): void {
+    const n = name.trim().slice(0, 24);
+    if (n.length < 3) throw new Error("Company name is too short.");
+    if (you.marks < LLC_FEE) throw new Error("Filing fee is 50 Marks.");
+    you.marks -= LLC_FEE;
+    this.llcs.push({
+      id: newId(),
+      name: n,
+      marks: 0,
+      inventory: emptyInventory(),
+      members: [{ playerId: you.id, name: you.name, shares: 100, role: "manager" }],
+    });
+  }
+
+  llcInvite(you: Account, llcId: string, toName: string, shares: number): void {
+    const llc = this.llcs.find((l) => l.id === llcId);
+    if (!llc || llc.members[0]?.playerId !== you.id) throw new Error("Only the manager can invite.");
+    const to = this.byName.get(toName.trim().toLowerCase());
+    if (!to) throw new Error("No player by that name.");
+    this.pushMail(you, to, `Join ${llc.name} for ${shares}%`, "llc-invite", { llcId: llc.id, shares });
+  }
+
+  transferPlot(you: Account, plotId: number, llcId: string): void {
+    const plot = this.plots.find((p) => p.id === plotId);
+    const llc = this.llcs.find((l) => l.id === llcId);
+    if (!plot || plot.ownerId !== you.id) throw new Error("Not your plot.");
+    if (!llc || !llc.members.some((m) => m.playerId === you.id)) throw new Error("Not your company.");
+    plot.ownerId = llc.id;
+    plot.ownerName = llc.name;
+  }
+
+  patent(you: Account, blueprintId: string): void {
+    const bp = you.blueprints.find((b) => b.id === blueprintId);
+    if (!bp) throw new Error("No such print.");
+    if (you.marks < PATENT_FEE) throw new Error("Patent fee is 40 Marks.");
+    const print = fingerprint(bp.tiles, bp.machine ?? "none");
+    if (this.patents.some((p) => p.fingerprint === print && p.until > this.tick)) {
+      throw new Error("Someone already locked that print.");
+    }
+    you.marks -= PATENT_FEE;
+    bp.patented = true;
+    this.patents.push({
+      id: newId(),
+      ownerId: you.id,
+      ownerName: you.name,
+      name: bp.name,
+      fingerprint: print,
+      until: this.tick + PATENT_MAINT_TICKS,
+    });
+  }
+
+  licenseOffer(you: Account, patentId: string, toName: string, killSwitch: boolean): void {
+    const pat = this.patents.find((p) => p.id === patentId && p.ownerId === you.id);
+    if (!pat) throw new Error("Not your patent.");
+    const to = this.byName.get(toName.trim().toLowerCase());
+    if (!to) throw new Error("No player by that name.");
+    this.pushMail(you, to, `License for ${pat.name}`, "license", { patentId: pat.id, killSwitch });
+  }
+
+  licenseRevoke(you: Account, licenseId: string): void {
+    const lic = this.licenses.find((l) => l.id === licenseId && l.licensorId === you.id);
+    if (!lic) throw new Error("Not your license to pull.");
+    lic.revoked = true;
+    if (lic.killSwitch) {
+      const pat = this.patents.find((p) => p.id === lic.patentId);
+      if (pat) {
+        for (const b of this.buildings) {
+          if (b.ownerId === lic.licenseeId && fingerprint(b.tiles, b.machine) === pat.fingerprint) {
+            b.complete = false;
+            b.needed = Math.max(b.needed, 40);
+            b.done = 0;
+          }
+        }
+      }
+    }
+  }
+
+  pave(you: Account, x: number, y: number): void {
+    if (!inWorld(x, y)) throw new Error("Out of the world.");
+    const plot = this.plots[plotIdAt(x, y)];
+    if (!this.controls(you, plot.ownerId)) throw new Error("Pave your own land, or file a Government proposal.");
+    if ((you.inventory.stone ?? 0) < 1) throw new Error("Need 1 stone.");
+    you.inventory.stone -= 1;
+    this.roads[tileIndex(x, y)] = 1;
+  }
+
+  propose(
+    you: Account,
+    kind: "road" | "pipe" | "power",
+    tiles: { x: number; y: number }[],
+    splits: { playerId: string; pct: number }[],
+  ): void {
+    if (tiles.length < 2) throw new Error("Draw a longer path.");
+    const owners = new Set<string>();
+    for (const t of tiles) {
+      if (!inWorld(t.x, t.y)) throw new Error("Path leaves the map.");
+      const o = this.plots[plotIdAt(t.x, t.y)].ownerId;
+      if (o) owners.add(o);
+    }
+    this.proposals.push({
+      id: newId(),
+      authorId: you.id,
+      authorName: you.name,
+      kind,
+      tiles,
+      marksCost: tiles.length,
+      stoneCost: tiles.length,
+      splits: (splits.length ? splits : [...owners].map((id) => ({ playerId: id, pct: Math.floor(100 / Math.max(1, owners.size)) }))).map((s) => ({
+        playerId: s.playerId,
+        name: this.nameOf(s.playerId),
+        pct: s.pct,
+      })),
+      votes: {},
+      pledges: {},
+      thread: [{ name: you.name, text: `Proposed a ${kind}.` }],
+      status: "open",
+    });
+  }
+
+  vote(you: Account, proposalId: string, vote: "yes" | "no"): void {
+    const p = this.proposals.find((x) => x.id === proposalId);
+    if (!p || p.status !== "open") throw new Error("No open proposal.");
+    p.votes[you.id] = vote;
+    this.tryBuildProposal(p);
+  }
+
+  pledge(you: Account, proposalId: string, marks: number): void {
+    const p = this.proposals.find((x) => x.id === proposalId);
+    if (!p || p.status !== "open") throw new Error("No open proposal.");
+    const n = Math.max(1, Math.floor(marks));
+    if (you.marks < n) throw new Error("Not enough Marks.");
+    you.marks -= n;
+    p.pledges[you.id] = (p.pledges[you.id] ?? 0) + n;
+    this.tryBuildProposal(p);
+  }
+
+  comment(you: Account, proposalId: string, text: string): void {
+    const p = this.proposals.find((x) => x.id === proposalId);
+    if (!p) throw new Error("No such proposal.");
+    p.thread.push({ name: you.name, text: text.slice(0, 180) });
+  }
+
+  buyTruck(you: Account): void {
+    if (you.marks < TRUCK_MARKS) throw new Error("Truck costs 55 Marks.");
+    if ((you.inventory.timber ?? 0) < TRUCK_TIMBER || (you.inventory.ore ?? 0) < TRUCK_ORE) {
+      throw new Error("Need 6 timber and 3 ore.");
+    }
+    const plots = this.ownedPlots(you.id);
+    if (!plots.length) throw new Error("Need land for a depot.");
+    you.marks -= TRUCK_MARKS;
+    you.inventory.timber -= TRUCK_TIMBER;
+    you.inventory.ore -= TRUCK_ORE;
+    const o = plotOrigin(plots[0].id);
+    this.vehicles.push({
+      id: newId(),
+      ownerId: you.id,
+      x: o.x + 2,
+      y: o.y + 2,
+      cargo: {},
+      route: [],
+      stop: 0,
+    });
+  }
+
+  setRoute(you: Account, vehicleId: string, route: Vehicle["route"]): void {
+    const v = this.vehicles.find((x) => x.id === vehicleId && x.ownerId === you.id);
+    if (!v) throw new Error("Not your truck.");
+    v.route = route.slice(0, 12);
+    v.stop = 0;
+  }
+
+  private tryBuildProposal(p: Proposal): void {
+    const owners = new Set(p.tiles.map((t) => this.plots[plotIdAt(t.x, t.y)].ownerId).filter(Boolean) as string[]);
+    const people = [...owners].filter((id) => this.accounts.has(id));
+    if (people.some((id) => p.votes[id] === "no")) {
+      p.status = "failed";
+      return;
+    }
+    if (people.length && people.some((id) => p.votes[id] !== "yes")) return;
+    const pledged = Object.values(p.pledges).reduce((a, b) => a + b, 0);
+    if (pledged < p.marksCost) return;
+    const author = this.accounts.get(p.authorId);
+    if (!author || (author.inventory.stone ?? 0) < p.stoneCost) return;
+    author.inventory.stone -= p.stoneCost;
+    if (p.kind === "road") {
+      for (const t of p.tiles) this.roads[tileIndex(t.x, t.y)] = 1;
+    }
+    p.status = "built";
+  }
+
+  private nameOf(id: string): string {
+    return this.accounts.get(id)?.name ?? this.llcs.find((l) => l.id === id)?.name ?? "unknown";
+  }
+
+  private pushMail(
+    from: Account,
+    to: Account,
+    body: string,
+    kind: MailItem["kind"],
+    payload: MailItem["payload"],
+  ): void {
+    this.mails.push({
+      id: newId(),
+      fromId: from.id,
+      fromName: from.name,
+      toId: to.id,
+      body,
+      kind,
+      payload,
+      read: false,
+      tick: this.tick,
+    });
   }
 
   private findSpawn(ox: number, oy: number): { x: number; y: number } {
@@ -507,5 +1071,11 @@ function starterShack(name: string): Blueprint {
     w,
     h,
     tiles,
+    machine: "none",
+    patented: false,
   };
+}
+
+function fingerprint(tiles: StructureKind[], machine: MachineKind): string {
+  return `${machine}:${tiles.join(",")}`;
 }

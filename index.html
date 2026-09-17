@@ -18,7 +18,7 @@
         <p class="eyebrow">Frontier ledger</p>
         <h1>CLAIM</h1>
         <p class="lede">
-          Buy a plot. Hire a crew. Design a shack. The Depot is small on purpose.
+          Buy land, run a company, invent materials, lend Marks, pave roads.
         </p>
         <label>Name <input id="name" autocomplete="username" maxlength="20" /></label>
         <label>Password <input id="pass" type="password" autocomplete="current-password" /></label>
@@ -44,8 +44,18 @@
         <button data-tool="hire">Hire</button>
         <button data-tool="mine">Mine</button>
         <button data-tool="build">Place</button>
+        <button data-tool="pave">Pave</button>
+        <button data-tool="work">Work</button>
+        <button data-tool="route">Route</button>
         <button data-panel="depot">Depot</button>
+        <button data-panel="market">Market</button>
+        <button data-panel="lab">Lab</button>
         <button data-panel="blueprints">Blueprints</button>
+        <button data-panel="mail">Mail</button>
+        <button data-panel="firm">LLC</button>
+        <button data-panel="bank">Bank</button>
+        <button data-panel="gov">Government</button>
+        <button data-panel="trucks">Trucks</button>
       </nav>
       <aside id="inspect"></aside>
       <div id="hint"></div>
@@ -71,6 +81,11 @@
             <div id="grid" class="grid"></div>
             <div class="row">
               <input id="bp-name" placeholder="Blueprint name" maxlength="24" />
+              <select id="bp-machine">
+                <option value="none">Building</option>
+                <option value="smelter">Smelter</option>
+                <option value="lab">Lab</option>
+              </select>
               <button id="bp-save" class="primary">Save design</button>
               <button id="bp-clear">Clear</button>
             </div>
@@ -81,6 +96,87 @@
             <div id="bp-list"></div>
           </div>
         </div>
+      </section>
+
+      <section id="market" class="sheet" hidden>
+        <header><h2>Player market</h2><button data-close="market">Close</button></header>
+        <p class="muted">Depot is limited. Sell what you make here.</p>
+        <div class="row">
+          <input id="m-item" placeholder="item (iron, timber…)" />
+          <input id="m-qty" type="number" value="1" min="1" />
+          <input id="m-price" type="number" value="10" min="1" />
+          <button id="m-sell" class="primary">List for sale</button>
+        </div>
+        <div id="market-rows"></div>
+      </section>
+
+      <section id="lab" class="sheet" hidden>
+        <header><h2>Lab / chemistry</h2><button data-close="lab">Close</button></header>
+        <p class="muted">Known recipes run clean. Unknown mixes can invent a new material — or slag.</p>
+        <div class="row">
+          <select id="lab-process">
+            <option value="heat">Heat</option>
+            <option value="crush">Crush</option>
+            <option value="mix">Mix</option>
+          </select>
+          <input id="lab-a" placeholder="input A e.g. ore" />
+          <input id="lab-an" type="number" value="2" min="1" />
+          <input id="lab-b" placeholder="input B (optional)" />
+          <input id="lab-bn" type="number" value="1" min="0" />
+          <input id="lab-name" placeholder="name if it is new" />
+          <button id="lab-go" class="primary">Run</button>
+        </div>
+        <div id="lab-recipes"></div>
+        <h3>Registry</h3>
+        <div id="lab-reg"></div>
+      </section>
+
+      <section id="mail" class="sheet" hidden>
+        <header><h2>Mail</h2><button data-close="mail">Close</button></header>
+        <div class="row">
+          <input id="mail-to" placeholder="player name" />
+          <input id="mail-body" placeholder="message" />
+          <button id="mail-send" class="primary">Send</button>
+        </div>
+        <div class="row">
+          <input id="loan-to" placeholder="borrower" />
+          <input id="loan-amt" type="number" value="80" />
+          <input id="loan-rate" type="number" value="8" />
+          <button id="loan-send">Offer loan</button>
+        </div>
+        <div id="mail-list"></div>
+      </section>
+
+      <section id="firm" class="sheet" hidden>
+        <header><h2>LLC</h2><button data-close="firm">Close</button></header>
+        <div class="row">
+          <input id="llc-name" placeholder="company name" />
+          <button id="llc-found" class="primary">File LLC (50 M)</button>
+        </div>
+        <div id="llc-list"></div>
+      </section>
+
+      <section id="bank" class="sheet" hidden>
+        <header><h2>Banking</h2><button data-close="bank">Close</button></header>
+        <p class="muted">No NPC bank. Players lend. Miss payments and debt can bankrupt you.</p>
+        <div id="bank-book"></div>
+      </section>
+
+      <section id="gov" class="sheet" hidden>
+        <header><h2>Government</h2><button data-close="gov">Close</button></header>
+        <p class="muted">Pave your own land with the Pave tool. Crossing neighbors needs a proposal and a vote.</p>
+        <div class="row">
+          <button id="gov-submit" class="primary">Submit drawn road as proposal</button>
+          <input id="gov-comment" placeholder="comment" />
+        </div>
+        <div id="gov-list"></div>
+      </section>
+
+      <section id="trucks" class="sheet" hidden>
+        <header><h2>Trucks</h2><button data-close="trucks">Close</button></header>
+        <p class="muted">55 M + 6 timber + 3 ore. Route tool: click stops on the map, then save.</p>
+        <button id="buy-truck" class="primary">Buy a cargo truck</button>
+        <div id="truck-list"></div>
       </section>
     </div>
 

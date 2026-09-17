@@ -64,7 +64,8 @@ input {
 .brand { font-family: VT323, monospace; font-size: 1.8rem; letter-spacing: 0.14em; }
 .marks { color: var(--accent); }
 .inv { display: flex; gap: 0.8rem; flex-wrap: wrap; color: var(--muted); }
-#tools { top: 64px; left: 10px; display: flex; flex-direction: column; gap: 4px; padding: 6px; }
+#tools { top: 64px; left: 10px; display: flex; flex-direction: column; gap: 4px; padding: 6px; max-height: calc(100% - 90px); overflow: auto; }
+select { background: #0e0d0b; border: 1px solid var(--line); padding: 0.35rem; color: inherit; }
 #inspect {
   top: 64px; right: 10px; width: min(280px, 34vw);
   padding: 0.7rem; min-height: 120px;

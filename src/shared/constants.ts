@@ -15,6 +15,16 @@ export const BUILD_WORK_PER_TILE = 8;
 export const WORKER_SPEED = 2.4;
 export const RESTOCK_EVERY_TICKS = 20;
 export const SAVE_EVERY_TICKS = 40;
+export const PATENT_FEE = 40;
+export const PATENT_MAINT_TICKS = 800;
+export const LLC_FEE = 50;
+export const TAX_EVERY_TICKS = 240;
+export const TAX_PER_PLOT = 2;
+export const TRUCK_MARKS = 55;
+export const TRUCK_TIMBER = 6;
+export const TRUCK_ORE = 3;
+export const BANKRUPT_DEBT = 90;
+export const LOAN_PERIOD_TICKS = 80;
 
 export const MATERIALS = ["timber", "stone", "ore", "clay", "sand"] as const;
 export type Material = (typeof MATERIALS)[number];
@@ -54,6 +64,7 @@ export const STRUCTURE = {
   clayFloor: 3,
   sandPath: 4,
   oreDoor: 5,
+  road: 6,
 } as const;
 
 export type StructureKind = (typeof STRUCTURE)[keyof typeof STRUCTURE];
@@ -64,6 +75,7 @@ export const STRUCTURE_MATERIAL: Record<Exclude<StructureKind, 0>, Material> = {
   [STRUCTURE.clayFloor]: "clay",
   [STRUCTURE.sandPath]: "sand",
   [STRUCTURE.oreDoor]: "ore",
+  [STRUCTURE.road]: "stone",
 };
 
 export const PALETTE = [
@@ -72,4 +84,8 @@ export const PALETTE = [
   { kind: STRUCTURE.clayFloor, label: "Clay floor", material: "clay" as Material },
   { kind: STRUCTURE.sandPath, label: "Sand path", material: "sand" as Material },
   { kind: STRUCTURE.oreDoor, label: "Ore door", material: "ore" as Material },
+  { kind: STRUCTURE.road, label: "Road", material: "stone" as Material },
 ];
+
+export const MACHINE_KINDS = ["none", "smelter", "lab"] as const;
+export type MachineKind = (typeof MACHINE_KINDS)[number];
