@@ -36,7 +36,9 @@ Create an account, buy a cheap plot, hire a couple of workers, open the Depot, m
 - **Buy plot** — click unclaimed land
 - **Hire** — spend Marks for a worker (need land first)
 - **Mine** — click a resource tile on your land
-- **Blueprints** — paint an 8×8 building, save, then **Place** on your land
+- **Blueprints** — paint an 8×8, save as building / smelter / lab, then **Place**
+- **Pave / Work / Route** — roads, run machines, truck stops
+- Sheets: Depot, Market, Lab, Mail, LLC, Bank, Government, Trucks
 
 ## Stack
 
