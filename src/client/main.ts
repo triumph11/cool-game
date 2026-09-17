@@ -3,11 +3,12 @@ import { goodLabel } from "../shared/chemistry";
 import { billOfMaterials, materialLabel } from "../shared/economy";
 import { inWorld, plotIdAt } from "../shared/geo";
 import type { ClientMsg } from "../shared/protocol";
+import type { GateKind } from "../shared/compute";
 import type { StructureKind, WorldSnapshot } from "../shared/types";
 import { connect } from "./net";
 import { drawWorld, makeCamera, screenToTile, STRUCT_HEX, type Camera } from "./render";
 
-type Tool = "select" | "buy" | "hire" | "mine" | "build" | "pave" | "work" | "route";
+type Tool = "select" | "buy" | "hire" | "mine" | "build" | "pave" | "work" | "route" | "wire";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#view")!;
 const inspect = document.querySelector("#inspect")!;
@@ -160,6 +161,23 @@ document.querySelector("#gov-submit")?.addEventListener("click", () => {
   draftPath = [];
 });
 document.querySelector("#buy-truck")?.addEventListener("click", () => send({ t: "buyTruck" }));
+document.querySelector("#wire-go")?.addEventListener("click", () => {
+  send({
+    t: "wireGates",
+    fromId: (document.querySelector("#wire-from") as HTMLInputElement).value.trim(),
+    toId: (document.querySelector("#wire-to") as HTMLInputElement).value.trim(),
+    slot: (document.querySelector("#wire-slot") as HTMLSelectElement).value as "a" | "b",
+  });
+});
+document.querySelector("#script-save")?.addEventListener("click", () => {
+  send({ t: "saveScript", text: (document.querySelector("#script-text") as HTMLTextAreaElement).value });
+});
+document.querySelector("#wrap-link")?.addEventListener("click", () => {
+  send({ t: "linkWallet", address: (document.querySelector("#wrap-addr") as HTMLInputElement).value });
+});
+document.querySelector("#wrap-go")?.addEventListener("click", () => {
+  send({ t: "wrapMarks", amount: Number((document.querySelector("#wrap-amt") as HTMLInputElement).value) });
+});
 
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 canvas.addEventListener("mousedown", (e) => {
@@ -251,6 +269,11 @@ function onClick(): void {
     draftRoute.push({ x: hover.x, y: hover.y, action: "load", item: "ore" });
     showToast(`Stop ${draftRoute.length}. Save on Trucks.`);
   }
+  if (tool === "wire") {
+    const kind = (document.querySelector("#gate-kind") as HTMLSelectElement | null)?.value as GateKind | undefined;
+    const param = (document.querySelector("#gate-param") as HTMLInputElement | null)?.value ?? "";
+    send({ t: "placeGate", x: hover.x, y: hover.y, kind: kind ?? "and", param });
+  }
 }
 
 function focusHome(): void {
@@ -271,6 +294,7 @@ function setHint(): void {
     pave: "Click your land to pave (1 stone). Click neighbors to draft a Government road.",
     work: "Click a smelter or lab to put your crew on that recipe.",
     route: "Click map stops for the selected truck, then save in Trucks.",
+    wire: "Click your land to place the selected gate. Connect ids in Compute.",
   };
   hint.textContent = hints[tool];
 }
@@ -291,6 +315,8 @@ function renderHud(): void {
   renderBank();
   renderGov();
   renderTrucks();
+  renderCompute();
+  renderWrap();
   renderInspect();
   setHint();
 }
@@ -304,7 +330,7 @@ function renderInspect(): void {
   inspect.innerHTML = `
     <h3>${snap.you.name}</h3>
     <p class="muted">${snap.you.blueprints.length} prints · ${snap.workers.filter((w) => w.ownerId === snap!.you.id).length} crew</p>
-    ${plot ? `<p>Plot ${plot.gx},${plot.gy}<br>Owner: ${plot.ownerName ?? "unclaimed"}<br>Price: ${plot.price} M<br>Timber ${plot.timber} · Stone ${plot.stone} · Ore ${plot.ore}</p>` : "<p>Pan with right-drag. Wheel to zoom.</p>"}
+    ${plot ? `<p>Plot ${plot.gx},${plot.gy}<br>Owner: ${plot.ownerName ?? "unclaimed"}<br>Price: ${plot.price} M<br>Timber ${plot.timber} · Stone ${plot.stone} · Ore ${plot.ore}<br>Pollution ${plot.pollution ?? 0}</p>` : "<p>Pan with right-drag. Wheel to zoom.</p>"}
     <p class="muted">Unread mail: ${snap.you.mail.filter((m) => !m.read).length} · trucks ${snap.vehicles.filter((v) => v.ownerId === youId).length}</p>
     ${tile != null && hover ? `<p class="muted">Tile ${hover.x},${hover.y} · ${names[tile] ?? tile}</p>` : ""}
     <p class="muted">Players online: ${snap.players.map((p) => p.name).join(", ") || "you"}</p>
@@ -459,7 +485,9 @@ function renderFirm(): void {
     return `<div class="bp-item"><div><strong>${l.name}</strong><div class="muted">${people}</div></div>
       <input data-inv="${l.id}" placeholder="invite name" />
       <button data-invite="${l.id}">Invite 20%</button>
-      <button data-xfer="${l.id}">Move my first plot in</button></div>`;
+      <button data-xfer="${l.id}">Move my first plot in</button>
+      ${l.isBank ? `<span class="muted">BANK ${l.depositRate}%</span>` : `<button data-bank="${l.id}">Open as bank 4%</button>`}
+      ${l.isBank ? `<button data-dep="${l.id}">Deposit 40M</button>` : ""}</div>`;
   }).join("") || `<p class="muted">No company yet. File one to hold land with friends.</p>`;
   root.querySelectorAll("[data-invite]").forEach((b) => {
     b.addEventListener("click", () => {
@@ -478,6 +506,12 @@ function renderFirm(): void {
       send({ t: "transferPlot", plotId: plot.id, llcId: (b as HTMLElement).dataset.xfer! });
     });
   });
+  root.querySelectorAll("[data-bank]").forEach((b) => {
+    b.addEventListener("click", () => send({ t: "openBank", llcId: (b as HTMLElement).dataset.bank!, rate: 4 }));
+  });
+  root.querySelectorAll("[data-dep]").forEach((b) => {
+    b.addEventListener("click", () => send({ t: "deposit", llcId: (b as HTMLElement).dataset.dep!, amount: 40 }));
+  });
 }
 
 function renderBank(): void {
@@ -488,7 +522,9 @@ function renderBank(): void {
   const taken = snap.you.loansTaken.map((l) => `You owe ${l.lenderName}: ${l.remaining} M @ ${l.rate}%`).join("<br>");
   const pat = snap.you.patents.map((p) => `${p.name} [${p.id}] until tick ${p.until}`).join("<br>");
   const lic = snap.you.licenses.map((l) => `${l.revoked ? "REVOKED" : "active"} license ${l.id.slice(0, 6)} ${l.killSwitch ? "(kill switch)" : ""} <button data-rev="${l.id}">Revoke</button>`).join("<br>");
+  const deps = snap.you.deposits.map((d) => `${d.amount} M at ${d.bankName} (${d.rate}%) <button data-wd="${d.id}">Withdraw</button>`).join("<br>");
   root.innerHTML = `<p>Cash ${snap.you.marks} M · Debt ${snap.you.debt}</p>
+    <p>${deps || "No deposits."}</p>
     <p>${made || "No loans issued."}</p>
     <p>${taken || "No loans taken."}</p>
     <p>${pat || "No patents."}</p>
@@ -496,6 +532,9 @@ function renderBank(): void {
     <div class="row"><input id="lic-to" placeholder="license to player" /><input id="lic-pat" placeholder="patent id" /><label><input type="checkbox" id="lic-kill" /> kill switch</label><button id="lic-offer">Offer license</button></div>`;
   root.querySelectorAll("[data-rev]").forEach((b) => {
     b.addEventListener("click", () => send({ t: "licenseRevoke", licenseId: (b as HTMLElement).dataset.rev! }));
+  });
+  root.querySelectorAll("[data-wd]").forEach((b) => {
+    b.addEventListener("click", () => send({ t: "withdraw", depositId: (b as HTMLElement).dataset.wd! }));
   });
   document.querySelector("#lic-offer")?.addEventListener("click", () => {
     send({
@@ -522,6 +561,28 @@ function renderGov(): void {
   root.querySelectorAll("[data-yes]").forEach((b) => b.addEventListener("click", () => send({ t: "vote", proposalId: (b as HTMLElement).dataset.yes!, vote: "yes" })));
   root.querySelectorAll("[data-no]").forEach((b) => b.addEventListener("click", () => send({ t: "vote", proposalId: (b as HTMLElement).dataset.no!, vote: "no" })));
   root.querySelectorAll("[data-pledge]").forEach((b) => b.addEventListener("click", () => send({ t: "pledge", proposalId: (b as HTMLElement).dataset.pledge!, marks: 10 })));
+}
+
+function renderCompute(): void {
+  if (!snap) return;
+  const box = document.querySelector("#script-text") as HTMLTextAreaElement | null;
+  if (box && document.activeElement !== box) box.value = snap.you.script ?? "";
+  const root = document.querySelector("#compute-list");
+  if (!root) return;
+  const gates = (snap.circuits ?? []).filter((c) => c.ownerId === snap!.you.id);
+  const list = gates.map((g) => `<p>${g.kind} [${g.id}] @${g.x},${g.y} ${g.on ? "ON" : "off"} · ${g.param} · A=${g.inA ?? "-"} B=${g.inB ?? "-"}</p>`).join("");
+  root.innerHTML = `<p class="muted">Last script: ${(snap.you.scriptLog ?? []).join(" · ") || "idle"}</p>` +
+    (list || `<p class="muted">No gates yet. Wire tool places them on your land.</p>`);
+}
+
+function renderWrap(): void {
+  if (!snap) return;
+  const root = document.querySelector("#wrap-list");
+  if (!root) return;
+  const addr = document.querySelector("#wrap-addr") as HTMLInputElement | null;
+  if (addr && document.activeElement !== addr && snap.you.wallet) addr.value = snap.you.wallet;
+  root.innerHTML = `<p>Linked: ${snap.you.wallet || "none"}</p>` +
+    (snap.you.wraps ?? []).map((w) => `<p>tick ${w.tick}: wrapped ${w.amount} M → ${w.address}</p>`).join("");
 }
 
 function renderTrucks(): void {

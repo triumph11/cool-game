@@ -30,7 +30,15 @@ export type ClientMsg =
   | { t: "pledge"; proposalId: string; marks: number }
   | { t: "comment"; proposalId: string; text: string }
   | { t: "buyTruck" }
-  | { t: "setRoute"; vehicleId: string; route: { x: number; y: number; action: "skip" | "load" | "unload"; item: string }[] };
+  | { t: "setRoute"; vehicleId: string; route: { x: number; y: number; action: "skip" | "load" | "unload"; item: string }[] }
+  | { t: "placeGate"; x: number; y: number; kind: import("./compute").GateKind; param: string }
+  | { t: "wireGates"; fromId: string; toId: string; slot: "a" | "b" }
+  | { t: "saveScript"; text: string }
+  | { t: "openBank"; llcId: string; rate: number }
+  | { t: "deposit"; llcId: string; amount: number }
+  | { t: "withdraw"; depositId: string }
+  | { t: "linkWallet"; address: string }
+  | { t: "wrapMarks"; amount: number };
 
 export type ServerMsg =
   | { t: "error"; message: string }

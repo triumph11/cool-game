@@ -87,5 +87,8 @@ export const PALETTE = [
   { kind: STRUCTURE.road, label: "Road", material: "stone" as Material },
 ];
 
-export const MACHINE_KINDS = ["none", "smelter", "lab"] as const;
+export const MACHINE_KINDS = ["none", "smelter", "lab", "computer"] as const;
 export type MachineKind = (typeof MACHINE_KINDS)[number];
+
+export const ECO_EVERY_TICKS = 12;
+export const BANK_TICKS = 80;

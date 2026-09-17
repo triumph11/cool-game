@@ -47,6 +47,9 @@
         <button data-tool="pave">Pave</button>
         <button data-tool="work">Work</button>
         <button data-tool="route">Route</button>
+        <button data-tool="wire">Wire</button>
+        <button data-panel="compute">Compute</button>
+        <button data-panel="ledger">Ledger wrap</button>
         <button data-panel="depot">Depot</button>
         <button data-panel="market">Market</button>
         <button data-panel="lab">Lab</button>
@@ -85,6 +88,7 @@
                 <option value="none">Building</option>
                 <option value="smelter">Smelter</option>
                 <option value="lab">Lab</option>
+                <option value="computer">Computer</option>
               </select>
               <button id="bp-save" class="primary">Save design</button>
               <button id="bp-clear">Clear</button>
@@ -158,8 +162,47 @@
 
       <section id="bank" class="sheet" hidden>
         <header><h2>Banking</h2><button data-close="bank">Close</button></header>
-        <p class="muted">No NPC bank. Players lend. Miss payments and debt can bankrupt you.</p>
+        <p class="muted">No NPC bank. Open a bank on your LLC, take deposits, pay interest — or get run.</p>
         <div id="bank-book"></div>
+      </section>
+
+      <section id="compute" class="sheet" hidden>
+        <header><h2>Compute</h2><button data-close="compute">Close</button></header>
+        <p class="muted">Gates on your land, plus a tiny script. Example: IF STOCK timber &gt; 8 THEN START smelter</p>
+        <div class="row">
+          <select id="gate-kind">
+            <option value="sensor-stock">Sensor stock</option>
+            <option value="sensor-pollution">Sensor pollution</option>
+            <option value="and">AND</option>
+            <option value="or">OR</option>
+            <option value="not">NOT</option>
+            <option value="timer">Timer</option>
+            <option value="relay">Relay</option>
+          </select>
+          <input id="gate-param" placeholder="timber > 10  |  20  |  building id" />
+        </div>
+        <p class="muted">Wire tool: click a gate on the map to place. Then pick two ids to connect.</p>
+        <div class="row">
+          <input id="wire-from" placeholder="from gate id" />
+          <input id="wire-to" placeholder="to gate id" />
+          <select id="wire-slot"><option value="a">input A</option><option value="b">input B</option></select>
+          <button id="wire-go">Connect</button>
+        </div>
+        <textarea id="script-text" rows="7" style="width:100%;background:#0e0d0b;color:inherit;border:1px solid #3a342a"></textarea>
+        <button id="script-save" class="primary">Save script</button>
+        <div id="compute-list"></div>
+      </section>
+
+      <section id="ledger" class="sheet" hidden>
+        <header><h2>Ledger wrap</h2><button data-close="ledger">Close</button></header>
+        <p class="muted">Simulated wrap only. Marks leave the game ledger and sit as a receipt. No real token is minted.</p>
+        <div class="row">
+          <input id="wrap-addr" placeholder="wallet address" />
+          <button id="wrap-link">Link wallet</button>
+          <input id="wrap-amt" type="number" value="10" min="1" />
+          <button id="wrap-go" class="primary">Wrap Marks</button>
+        </div>
+        <div id="wrap-list"></div>
       </section>
 
       <section id="gov" class="sheet" hidden>

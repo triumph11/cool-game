@@ -13,8 +13,12 @@ Playable now:
 - Pave roads on your land; Government proposals to cross neighbors
 - Cargo trucks with click-to-set routes
 - Land tax and bankruptcy if debt runs too high
+- Compute: logic gates, wiring, scripts (`IF STOCK timber > 8 THEN START smelter`)
+- Player banks: deposits, interest, bank runs
+- Living land: pollution from machines, neighbor bleed, trees grow back if clean
+- Ledger wrap: simulated wallet receipt only — no real token
 
-Still later: electronics scripting, bank deposits / bank-runs, chain bridge.
+Real on-chain minting is intentionally not in this build.
 
 ## Run
 
@@ -38,7 +42,8 @@ Create an account, buy a cheap plot, hire a couple of workers, open the Depot, m
 - **Mine** — click a resource tile on your land
 - **Blueprints** — paint an 8×8, save as building / smelter / lab, then **Place**
 - **Pave / Work / Route** — roads, run machines, truck stops
-- Sheets: Depot, Market, Lab, Mail, LLC, Bank, Government, Trucks
+- **Wire / Compute** — place gates, connect them, save a script
+- Sheets: Depot, Market, Lab, Mail, LLC, Bank, Government, Trucks, Compute, Ledger wrap
 
 ## Stack
 

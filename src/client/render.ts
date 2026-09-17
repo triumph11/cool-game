@@ -103,6 +103,14 @@ export function drawWorld(
         ctx.fillStyle = "#c9a227";
         ctx.fillRect(px + TILE_PX / 2 - 1, py + 4, 2, TILE_PX - 8);
       }
+      if (snap.pipes?.[y * WORLD_TILES + x]) {
+        ctx.fillStyle = "#3d6b8a";
+        ctx.fillRect(px + 4, py + TILE_PX / 2 - 1, TILE_PX - 8, 3);
+      }
+      if (snap.power?.[y * WORLD_TILES + x]) {
+        ctx.fillStyle = "#d4a017";
+        ctx.fillRect(px + TILE_PX / 2 - 1, py + 4, 2, TILE_PX - 8);
+      }
     }
   }
 
@@ -112,6 +120,9 @@ export function drawWorld(
     const px = plot.gx * PLOT_TILES * TILE_PX;
     const py = plot.gy * PLOT_TILES * TILE_PX;
     const size = PLOT_TILES * TILE_PX;
+    const pol = Math.min(1, (plot.pollution ?? 0) / 80);
+    ctx.fillStyle = `rgba(120, 70, 30, ${0.08 + pol * 0.35})`;
+    ctx.fillRect(px, py, size, size);
     if (plot.ownerId === youId) {
       ctx.fillStyle = "#d4a01718";
       ctx.fillRect(px, py, size, size);
@@ -142,6 +153,10 @@ export function drawWorld(
       ctx.fillStyle = "#e7dcc4";
       ctx.font = "10px monospace";
       ctx.fillText(`${Math.floor((b.done / b.needed) * 100)}%`, b.x * TILE_PX, b.y * TILE_PX - 2);
+    } else if (b.paused) {
+      ctx.fillStyle = "#c45c3e";
+      ctx.font = "10px monospace";
+      ctx.fillText("PAUSE", b.x * TILE_PX, b.y * TILE_PX - 2);
     }
   }
 
@@ -170,6 +185,26 @@ export function drawWorld(
     ctx.fillStyle = "#1c1a16";
     ctx.fillRect(px - 5, py - 2, 4, 4);
     ctx.fillRect(px + 1, py - 2, 4, 4);
+  }
+
+  for (const g of snap.circuits ?? []) {
+    const px = g.x * TILE_PX + 4;
+    const py = g.y * TILE_PX + 4;
+    ctx.fillStyle = g.on ? "#7aa35a" : "#3a342a";
+    ctx.fillRect(px, py, 12, 12);
+    ctx.fillStyle = "#e7dcc4";
+    ctx.font = "8px monospace";
+    ctx.fillText(g.kind[0].toUpperCase(), px + 2, py + 10);
+    if (g.inA) {
+      const a = snap.circuits.find((x) => x.id === g.inA);
+      if (a) {
+        ctx.strokeStyle = g.on ? "#7aa35a" : "#8a7f6a";
+        ctx.beginPath();
+        ctx.moveTo(a.x * TILE_PX + 10, a.y * TILE_PX + 10);
+        ctx.lineTo(g.x * TILE_PX + 10, g.y * TILE_PX + 10);
+        ctx.stroke();
+      }
+    }
   }
 
   if (hover && hover.x >= 0 && hover.y >= 0 && hover.x < WORLD_TILES && hover.y < WORLD_TILES) {

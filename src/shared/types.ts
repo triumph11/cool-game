@@ -1,5 +1,6 @@
 import type { MachineKind, Material, StructureKind } from "./constants";
 import type { Process, Qty, RegistryItem } from "./chemistry";
+import type { CircuitNode } from "./compute";
 export type { Material, StructureKind, MachineKind };
 export type { Qty };
 
@@ -15,6 +16,7 @@ export interface Plot {
   timber: number;
   stone: number;
   ore: number;
+  pollution: number;
 }
 
 export interface Worker {
@@ -45,6 +47,7 @@ export interface Building {
   machine: MachineKind;
   recipeId: string | null;
   work: number;
+  paused: boolean;
 }
 
 export interface Blueprint {
@@ -99,6 +102,24 @@ export interface Llc {
   marks: number;
   inventory: Qty;
   members: { playerId: string; name: string; shares: number; role: "manager" | "partner" }[];
+  isBank: boolean;
+  depositRate: number;
+}
+
+export interface Deposit {
+  id: string;
+  bankId: string;
+  bankName: string;
+  ownerId: string;
+  ownerName: string;
+  amount: number;
+  rate: number;
+}
+
+export interface WrapReceipt {
+  tick: number;
+  amount: number;
+  address: string;
 }
 
 export interface Loan {
@@ -168,6 +189,11 @@ export interface You {
   loansTaken: Loan[];
   patents: Patent[];
   licenses: License[];
+  deposits: Deposit[];
+  script: string;
+  scriptLog: string[];
+  wallet: string;
+  wraps: WrapReceipt[];
 }
 
 export interface WorldSnapshot {
@@ -184,6 +210,10 @@ export interface WorldSnapshot {
   registry: RegistryItem[];
   recipes: { id: string; name: string; process: Process; in: Qty; out: Qty }[];
   proposals: Proposal[];
+  circuits: CircuitNode[];
+  pipes: number[];
+  power: number[];
+  banks: Llc[];
   players: PublicPlayer[];
   you: You;
 }

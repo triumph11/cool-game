@@ -145,6 +145,30 @@ function handle(ws: WebSocket, msg: ClientMsg): void {
     case "setRoute":
       world.setRoute(you, msg.vehicleId, msg.route);
       break;
+    case "placeGate":
+      world.placeGate(you, msg.x, msg.y, msg.kind, msg.param);
+      break;
+    case "wireGates":
+      world.wireGates(you, msg.fromId, msg.toId, msg.slot);
+      break;
+    case "saveScript":
+      world.saveScript(you, msg.text);
+      break;
+    case "openBank":
+      world.openBank(you, msg.llcId, msg.rate);
+      break;
+    case "deposit":
+      world.deposit(you, msg.llcId, msg.amount);
+      break;
+    case "withdraw":
+      world.withdraw(you, msg.depositId);
+      break;
+    case "linkWallet":
+      world.linkWallet(you, msg.address);
+      break;
+    case "wrapMarks":
+      world.wrapMarks(you, msg.amount);
+      break;
     default:
       throw new Error("Unknown command.");
   }

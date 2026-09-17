@@ -4,7 +4,9 @@ import { fileURLToPath } from "node:url";
 import {
   BUILD_WORK_PER_TILE,
   BANKRUPT_DEBT,
+  BANK_TICKS,
   DEPOT_CAP,
+  ECO_EVERY_TICKS,
   DESIGNER_SIZE,
   HIRE_COST,
   LLC_FEE,
@@ -53,6 +55,7 @@ import {
   subtractMaterials,
   terrainToMaterial,
 } from "../shared/economy";
+import { evalCircuits, runScript, type CircuitNode, type GateKind } from "../shared/compute";
 import { hash2, inWorld, plotIdAt, plotOrigin, tileIndex } from "../shared/geo";
 import type {
   Blueprint,
@@ -60,6 +63,7 @@ import type {
   DepotState,
   Inventory,
   Job,
+  Deposit,
   License,
   Llc,
   Loan,
@@ -72,6 +76,7 @@ import type {
   Vehicle,
   Worker,
   WorldSnapshot,
+  WrapReceipt,
   You,
 } from "../shared/types";
 import { checkPassword, hashPassword, newId } from "./auth";
@@ -88,6 +93,10 @@ interface Account {
   debt: number;
   inventory: Inventory;
   blueprints: Blueprint[];
+  script: string;
+  scriptLog: string[];
+  wallet: string;
+  wraps: WrapReceipt[];
 }
 
 interface Persist {
@@ -110,6 +119,10 @@ interface Persist {
   patents: Patent[];
   licenses: License[];
   proposals: Proposal[];
+  circuits: CircuitNode[];
+  deposits: Deposit[];
+  pipes: number[];
+  power: number[];
 }
 
 function generateTerrain(seed: number): number[] {
@@ -159,6 +172,7 @@ function makePlots(terrain: number[]): Plot[] {
         timber,
         stone,
         ore,
+        pollution: 0,
       });
     }
   }
@@ -190,6 +204,10 @@ export class World {
   patents: Patent[] = [];
   licenses: License[] = [];
   proposals: Proposal[] = [];
+  circuits: CircuitNode[] = [];
+  deposits: Deposit[] = [];
+  pipes: number[] = [];
+  power: number[] = [];
 
   constructor() {
     this.loadOrCreate();
@@ -216,8 +234,16 @@ export class World {
       this.patents = raw.patents ?? [];
       this.licenses = raw.licenses ?? [];
       this.proposals = raw.proposals ?? [];
+      this.circuits = raw.circuits ?? [];
+      this.deposits = raw.deposits ?? [];
+      this.pipes = raw.pipes ?? new Array(this.terrain.length).fill(0);
+      this.power = raw.power ?? new Array(this.terrain.length).fill(0);
       for (const a of raw.accounts) {
         a.debt ??= 0;
+        a.script ??= "";
+        a.scriptLog ??= [];
+        a.wallet ??= "";
+        a.wraps ??= [];
         for (const bp of a.blueprints) {
           bp.machine ??= "none";
           bp.patented ??= false;
@@ -229,12 +255,20 @@ export class World {
         b.machine ??= "none";
         b.recipeId ??= null;
         b.work ??= 0;
+        b.paused ??= false;
+      }
+      for (const p of this.plots) p.pollution ??= 0;
+      for (const l of this.llcs) {
+        l.isBank ??= false;
+        l.depositRate ??= 3;
       }
       return;
     }
     this.terrain = generateTerrain(this.seed);
     this.plots = makePlots(this.terrain);
     this.roads = new Array(this.terrain.length).fill(0);
+    this.pipes = new Array(this.terrain.length).fill(0);
+    this.power = new Array(this.terrain.length).fill(0);
     this.save();
   }
 
@@ -260,6 +294,10 @@ export class World {
       patents: this.patents,
       licenses: this.licenses,
       proposals: this.proposals,
+      circuits: this.circuits,
+      deposits: this.deposits,
+      pipes: this.pipes,
+      power: this.power,
     };
     writeFileSync(dataFile, JSON.stringify(persist));
   }
@@ -277,6 +315,10 @@ export class World {
       debt: 0,
       inventory: emptyInventory(),
       blueprints: [starterShack(clean)],
+      script: "IF STOCK timber > 8 THEN START smelter\nIF STOCK timber < 2 THEN STOP smelter\nIF POLLUTION > 40 THEN STOP ALL",
+      scriptLog: [],
+      wallet: "",
+      wraps: [],
     };
     this.accounts.set(account.id, account);
     this.byName.set(clean.toLowerCase(), account);
@@ -312,6 +354,10 @@ export class World {
       proposals: this.proposals,
       vehicles: this.vehicles,
       roads: this.roads,
+      circuits: this.circuits,
+      pipes: this.pipes,
+      power: this.power,
+      banks: this.llcs.filter((l) => l.isBank),
       players: this.publicPlayers(),
       you: this.youView(you),
     };
@@ -331,6 +377,11 @@ export class World {
       loansTaken: this.loans.filter((l) => l.borrowerId === you.id),
       patents: this.patents.filter((p) => p.ownerId === you.id && p.until > this.tick),
       licenses: this.licenses.filter((l) => l.licensorId === you.id || l.licenseeId === you.id),
+      deposits: this.deposits.filter((d) => d.ownerId === you.id),
+      script: you.script,
+      scriptLog: you.scriptLog,
+      wallet: you.wallet,
+      wraps: you.wraps,
     };
   }
 
@@ -452,6 +503,7 @@ export class World {
       machine: bp.machine ?? "none",
       recipeId: bp.machine === "smelter" ? "iron" : bp.machine === "lab" ? null : null,
       work: 0,
+      paused: false,
     };
     this.buildings.push(building);
     const idle = this.workers.filter((w) => w.ownerId === you.id && !w.job);
@@ -492,6 +544,9 @@ export class World {
     if (this.tick % RESTOCK_EVERY_TICKS === 0) this.restock();
     if (this.tick % TAX_EVERY_TICKS === 0) this.collectTax();
     if (this.tick % 8 === 0) this.tickLoans();
+    if (this.tick % BANK_TICKS === 0) this.tickBanks();
+    if (this.tick % ECO_EVERY_TICKS === 0) this.stepEco();
+    this.stepCompute();
     if (this.tick % SAVE_EVERY_TICKS === 0) this.save();
   }
 
@@ -583,18 +638,19 @@ export class World {
   private doWork(w: Worker, buildingId: string): void {
     const b = this.buildings.find((x) => x.id === buildingId);
     const owner = this.accounts.get(w.ownerId);
-    if (!b || !owner || !b.complete || b.machine === "none") {
-      w.job = null;
-      return;
-    }
+    if (!b || !owner || !b.complete || b.machine === "none" || b.paused) return;
     const recipe = KNOWN_RECIPES.find((r) => r.id === b.recipeId);
     if (!recipe) return;
     if (!qtyHas(owner.inventory, recipe.in)) return;
+    const plot = this.plots[plotIdAt(b.x, b.y)];
+    const slow = (plot.pollution ?? 0) > 40 ? 2 : 1;
     b.work += 1;
-    if (b.work < recipe.ticks) return;
+    if (b.work < recipe.ticks * slow) return;
     b.work = 0;
     qtySub(owner.inventory, recipe.in);
     qtyAdd(owner.inventory, recipe.out);
+    plot.pollution = Math.min(100, (plot.pollution ?? 0) + 4);
+    this.bleedPollution(plot);
   }
 
   private stepVehicle(v: Vehicle, dt: number): void {
@@ -822,6 +878,8 @@ export class World {
       id: newId(),
       name: n,
       marks: 0,
+      isBank: false,
+      depositRate: 3,
       inventory: emptyInventory(),
       members: [{ playerId: you.id, name: you.name, shares: 100, role: "manager" }],
     });
@@ -1000,7 +1058,187 @@ export class World {
     if (p.kind === "road") {
       for (const t of p.tiles) this.roads[tileIndex(t.x, t.y)] = 1;
     }
+    if (p.kind === "pipe") {
+      for (const t of p.tiles) this.pipes[tileIndex(t.x, t.y)] = 1;
+    }
+    if (p.kind === "power") {
+      for (const t of p.tiles) this.power[tileIndex(t.x, t.y)] = 1;
+    }
     p.status = "built";
+  }
+
+  private bleedPollution(plot: Plot): void {
+    for (const n of this.plots) {
+      if (Math.abs(n.gx - plot.gx) + Math.abs(n.gy - plot.gy) === 1) {
+        n.pollution = Math.min(100, (n.pollution ?? 0) + 1);
+      }
+    }
+  }
+
+  private stepEco(): void {
+    for (const p of this.plots) {
+      p.pollution = Math.max(0, (p.pollution ?? 0) - 1);
+      if ((p.pollution ?? 0) > 8) continue;
+      const ox = p.gx * PLOT_TILES;
+      const oy = p.gy * PLOT_TILES;
+      const x = ox + Math.floor(hash2(p.id, this.tick, this.seed) * PLOT_TILES);
+      const y = oy + Math.floor(hash2(this.tick, p.id, this.seed) * PLOT_TILES);
+      const i = tileIndex(x, y);
+      if (this.terrain[i] === TERRAIN.grass && hash2(x, y, this.tick) > 0.92) {
+        this.terrain[i] = TERRAIN.tree;
+        p.timber += 1;
+      }
+    }
+  }
+
+  private stepCompute(): void {
+    for (const a of this.accounts.values()) {
+      const poll = this.ownedPlots(a.id).reduce((s, p) => s + (p.pollution ?? 0), 0);
+      evalCircuits(this.circuits.filter((c) => c.ownerId === a.id), a.inventory, poll, this.tick);
+      const relays = this.circuits.filter((c) => c.ownerId === a.id && c.kind === "relay");
+      for (const r of relays) {
+        const b = this.buildings.find((x) => x.id === r.param && this.controls(a, x.ownerId));
+        if (b) b.paused = !r.on;
+      }
+      if (!a.script.trim()) continue;
+      const res = runScript(a.script, {
+        stock: a.inventory,
+        pollution: poll,
+        tick: this.tick,
+        buildings: this.buildings.filter((b) => this.controls(a, b.ownerId)).map((b) => ({
+          id: b.id,
+          machine: b.machine,
+          paused: b.paused,
+        })),
+      });
+      a.scriptLog = res.log.slice(-8);
+      if (res.stopAll) {
+        for (const b of this.buildings) if (this.controls(a, b.ownerId)) b.paused = true;
+      }
+      for (const id of res.stop) {
+        const b = this.buildings.find((x) => x.id === id);
+        if (b) b.paused = true;
+      }
+      for (const id of res.start) {
+        const b = this.buildings.find((x) => x.id === id);
+        if (b) b.paused = false;
+      }
+    }
+  }
+
+  private tickBanks(): void {
+    for (const d of this.deposits) {
+      const bank = this.llcs.find((l) => l.id === d.bankId);
+      if (!bank) continue;
+      const pay = Math.max(1, Math.round(d.amount * (d.rate / 100)));
+      if (bank.marks >= pay) {
+        bank.marks -= pay;
+        d.amount += pay;
+      } else {
+        this.bankRun(bank);
+      }
+    }
+  }
+
+  private bankRun(bank: Llc): void {
+    const book = this.deposits.filter((d) => d.bankId === bank.id);
+    const total = book.reduce((s, d) => s + d.amount, 0) || 1;
+    const cash = bank.marks;
+    for (const d of book) {
+      const owner = this.accounts.get(d.ownerId);
+      if (owner) owner.marks += Math.floor((d.amount / total) * cash);
+    }
+    this.deposits = this.deposits.filter((d) => d.bankId !== bank.id);
+    bank.marks = 0;
+    bank.isBank = false;
+    for (const p of this.plots) {
+      if (p.ownerId === bank.id) {
+        p.ownerId = null;
+        p.ownerName = null;
+        p.price = Math.max(40, Math.floor(p.price * 0.7));
+      }
+    }
+  }
+
+  placeGate(you: Account, x: number, y: number, kind: GateKind, param: string): void {
+    if (!inWorld(x, y)) throw new Error("Out of world.");
+    if (!this.controls(you, this.plots[plotIdAt(x, y)].ownerId)) throw new Error("Place gates on your land.");
+    this.circuits.push({
+      id: newId(),
+      ownerId: you.id,
+      x,
+      y,
+      kind,
+      inA: null,
+      inB: null,
+      param,
+      on: false,
+    });
+  }
+
+  wireGates(you: Account, fromId: string, toId: string, slot: "a" | "b"): void {
+    const from = this.circuits.find((c) => c.id === fromId && c.ownerId === you.id);
+    const to = this.circuits.find((c) => c.id === toId && c.ownerId === you.id);
+    if (!from || !to) throw new Error("Those gates are not yours.");
+    if (slot === "a") to.inA = from.id;
+    else to.inB = from.id;
+  }
+
+  saveScript(you: Account, text: string): void {
+    you.script = text.slice(0, 1200);
+  }
+
+  openBank(you: Account, llcId: string, rate: number): void {
+    const llc = this.llcs.find((l) => l.id === llcId);
+    if (!llc || llc.members[0]?.playerId !== you.id) throw new Error("Only the manager can open a bank.");
+    llc.isBank = true;
+    llc.depositRate = Math.max(1, Math.min(20, Math.floor(rate)));
+  }
+
+  deposit(you: Account, llcId: string, amount: number): void {
+    const llc = this.llcs.find((l) => l.id === llcId && l.isBank);
+    if (!llc) throw new Error("That is not a bank.");
+    const n = Math.max(5, Math.floor(amount));
+    if (you.marks < n) throw new Error("Not enough Marks.");
+    you.marks -= n;
+    llc.marks += n;
+    this.deposits.push({
+      id: newId(),
+      bankId: llc.id,
+      bankName: llc.name,
+      ownerId: you.id,
+      ownerName: you.name,
+      amount: n,
+      rate: llc.depositRate,
+    });
+  }
+
+  withdraw(you: Account, depositId: string): void {
+    const i = this.deposits.findIndex((d) => d.id === depositId && d.ownerId === you.id);
+    if (i < 0) throw new Error("No such deposit.");
+    const d = this.deposits[i];
+    const bank = this.llcs.find((l) => l.id === d.bankId);
+    if (!bank || bank.marks < d.amount) {
+      if (bank) this.bankRun(bank);
+      throw new Error("Bank could not cover the withdrawal. Run.");
+    }
+    bank.marks -= d.amount;
+    you.marks += d.amount;
+    this.deposits.splice(i, 1);
+  }
+
+  linkWallet(you: Account, address: string): void {
+    const a = address.trim();
+    if (a.length < 8) throw new Error("Wallet address looks too short.");
+    you.wallet = a.slice(0, 64);
+  }
+
+  wrapMarks(you: Account, amount: number): void {
+    if (!you.wallet) throw new Error("Link a wallet first. This wrap is simulated — no real chain yet.");
+    const n = Math.max(1, Math.floor(amount));
+    if (you.marks < n) throw new Error("Not enough Marks.");
+    you.marks -= n;
+    you.wraps.push({ tick: this.tick, amount: n, address: you.wallet });
   }
 
   private nameOf(id: string): string {
